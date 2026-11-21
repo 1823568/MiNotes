@@ -153,4 +153,9 @@
     <string name="menu_mode_view">进入阅读模式</string>
     <string name="menu_mode_edit">进入编辑模式</string>
     <string name="info_read_only_mode">已进入阅读模式，再次点击菜单可解锁</string>
+    <string name="menu_empty_trash">Empty trash</string>
+    <string name="alert_title_empty_trash">Empty trash</string>
+    <string name="alert_message_empty_trash">All notes in the trash folder will be deleted permanently. Continue?</string>
+    <string name="empty_trash_done">Trash emptied</string>
+    <string name="empty_trash_nothing">The trash folder is already empty</string>
 </resources>

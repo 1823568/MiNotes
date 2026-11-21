@@ -521,6 +521,68 @@ public class NotesListActivity extends Activity implements OnClickListener, OnIt
         }.execute();
     }
 
+
+    // [维护] 清空回收站前的二次确认，避免误删
+    private void showEmptyTrashDialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(R.string.alert_title_empty_trash);
+        builder.setMessage(R.string.alert_message_empty_trash);
+        builder.setPositiveButton(android.R.string.ok, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                emptyTrash();
+            }
+        });
+        builder.setNegativeButton(android.R.string.cancel, null);
+        builder.show();
+    }
+
+    /**
+     * [维护] 一次性删除回收站内的全部便签。
+     *
+     * <p>删除仍然走 ContentProvider：data 表中的内容由触发器级联清理，
+     * 文件夹计数也随之维护，因此不需要额外的一致性处理。</p>
+     */
+    private void emptyTrash() {
+        new AsyncTask<Void, Void, Integer>() {
+            @Override
+            protected Integer doInBackground(Void... params) {
+                HashSet<Long> ids = new HashSet<Long>();
+                Cursor cursor = mContentResolver.query(Notes.CONTENT_NOTE_URI,
+                        new String[] {
+                            NoteColumns.ID
+                        }, NoteColumns.PARENT_ID + "=?",
+                        new String[] {
+                            String.valueOf(Notes.ID_TRASH_FOLER)
+                        }, null);
+                if (cursor != null) {
+                    try {
+                        while (cursor.moveToNext()) {
+                            ids.add(cursor.getLong(0));
+                        }
+                    } finally {
+                        cursor.close();
+                    }
+                }
+                if (ids.isEmpty()) {
+                    return 0;
+                }
+                return DataUtils.batchDeleteNotes(mContentResolver, ids) ? ids.size() : -1;
+            }
+
+            @Override
+            protected void onPostExecute(Integer count) {
+                if (count == null || count < 0) {
+                    return;
+                }
+                Toast.makeText(NotesListActivity.this,
+                        count == 0 ? R.string.empty_trash_nothing : R.string.empty_trash_done,
+                        Toast.LENGTH_SHORT).show();
+                startAsyncNotesListQuery();
+            }
+        }.execute();
+    }
+
     private void deleteFolder(final long folderId) {
         if (folderId == Notes.ID_ROOT_FOLDER) {
             Log.e(TAG, "Wrong folder id, should not happen " + folderId);
@@ -791,6 +853,11 @@ public class NotesListActivity extends Activity implements OnClickListener, OnIt
                     GTaskSyncService.isSyncing() ? R.string.menu_sync_cancel : R.string.menu_sync);
         } else if (mState == ListEditState.SUB_FOLDER) {
             getMenuInflater().inflate(R.menu.sub_folder, menu);
+            // [维护] 只有回收站文件夹才显示“清空回收站”
+            MenuItem emptyTrashItem = menu.findItem(R.id.menu_empty_trash);
+            if (emptyTrashItem != null) {
+                emptyTrashItem.setVisible(mCurrentFolderId == Notes.ID_TRASH_FOLER);
+            }
         } else if (mState == ListEditState.CALL_RECORD_FOLDER) {
             getMenuInflater().inflate(R.menu.call_record_folder, menu);
         } else {
@@ -833,6 +900,10 @@ public class NotesListActivity extends Activity implements OnClickListener, OnIt
             case R.id.menu_search:
                 onSearchRequested();
                 break;
+            case R.id.menu_empty_trash: {
+                showEmptyTrashDialog();
+                break;
+            }
             default:
                 break;
         }
