@@ -158,4 +158,5 @@
     <string name="alert_message_empty_trash">All notes in the trash folder will be deleted permanently. Continue?</string>
     <string name="empty_trash_done">Trash emptied</string>
     <string name="empty_trash_nothing">The trash folder is already empty</string>
+    <string name="menu_open_trash">Trash</string>
 </resources>

@@ -488,20 +488,11 @@ public class NotesListActivity extends Activity implements OnClickListener, OnIt
         new AsyncTask<Void, Void, HashSet<AppWidgetAttribute>>() {
             protected HashSet<AppWidgetAttribute> doInBackground(Void... unused) {
                 HashSet<AppWidgetAttribute> widgets = mNotesListAdapter.getSelectedWidget();
-                if (!isSyncMode()) {
-                    // if not synced, delete notes directly
-                    if (DataUtils.batchDeleteNotes(mContentResolver, mNotesListAdapter
-                            .getSelectedItemIds())) {
-                    } else {
-                        Log.e(TAG, "Delete notes error, should not happens");
-                    }
-                } else {
-                    // in sync mode, we'll move the deleted note into the trash
-                    // folder
-                    if (!DataUtils.batchMoveToFolder(mContentResolver, mNotesListAdapter
-                            .getSelectedItemIds(), Notes.ID_TRASH_FOLER)) {
-                        Log.e(TAG, "Move notes to trash folder error, should not happens");
-                    }
+                // [维护] 删除统一改为“移入回收站”，由“清空回收站”负责真正删除，
+                // 这样误删后还能找回，行为也与其他便签应用一致。
+                if (!DataUtils.batchMoveToFolder(mContentResolver, mNotesListAdapter
+                        .getSelectedItemIds(), Notes.ID_TRASH_FOLER)) {
+                    Log.e(TAG, "Move notes to trash folder error, should not happens");
                 }
                 return widgets;
             }
@@ -543,6 +534,19 @@ public class NotesListActivity extends Activity implements OnClickListener, OnIt
      * <p>删除仍然走 ContentProvider：data 表中的内容由触发器级联清理，
      * 文件夹计数也随之维护，因此不需要额外的一致性处理。</p>
      */
+    /**
+     * [维护] 打开回收站：回收站是系统文件夹，不在主页列表里，因此单独给一个入口。
+     */
+    private void openTrash() {
+        mCurrentFolderId = Notes.ID_TRASH_FOLER;
+        mState = ListEditState.SUB_FOLDER;
+        mTitleBar.setText(R.string.menu_open_trash);
+        mTitleBar.setVisibility(View.VISIBLE);
+        mAddNewNote.setVisibility(View.GONE);
+        startAsyncNotesListQuery();
+        invalidateOptionsMenu();
+    }
+
     private void emptyTrash() {
         new AsyncTask<Void, Void, Integer>() {
             @Override
@@ -755,6 +759,8 @@ public class NotesListActivity extends Activity implements OnClickListener, OnIt
                 mState = ListEditState.NOTE_LIST;
                 startAsyncNotesListQuery();
                 mTitleBar.setVisibility(View.GONE);
+                mAddNewNote.setVisibility(View.VISIBLE);
+                invalidateOptionsMenu();
                 break;
             case CALL_RECORD_FOLDER:
                 mCurrentFolderId = Notes.ID_ROOT_FOLDER;
@@ -902,6 +908,10 @@ public class NotesListActivity extends Activity implements OnClickListener, OnIt
                 break;
             case R.id.menu_empty_trash: {
                 showEmptyTrashDialog();
+                break;
+            }
+            case R.id.menu_open_trash: {
+                openTrash();
                 break;
             }
             default:

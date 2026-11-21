@@ -135,4 +135,5 @@
     <string name="alert_message_empty_trash">回收站中的便签将被全部删除，且无法恢复，确认继续？</string>
     <string name="empty_trash_done">回收站已清空</string>
     <string name="empty_trash_nothing">回收站已经是空的</string>
+    <string name="menu_open_trash">回收站</string>
 </resources>
