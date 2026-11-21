@@ -80,23 +80,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 // [新增] AI 功能所需的导入
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.WebSocket;
-import okhttp3.WebSocketListener;
-import org.json.JSONArray;
-import org.json.JSONObject;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
-import java.util.TimeZone;
-// 注意：使用 Android 自带的 Base64
-import android.util.Base64;
+import net.micode.notes.ai.AiSummaryClient;
 
 
 public class NoteEditActivity extends Activity implements OnClickListener,
@@ -115,7 +99,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
     // [修改这里] 把 "general" 改为 "x1"
     private static final String SPARK_DOMAIN = "x1";
 
-    private StringBuilder mAiResponseBuilder;
+    private AiSummaryClient mAiSummaryClient;
     private android.app.ProgressDialog mAiProgressDialog;
     // ===============================================================
     private class HeadViewHolder {
@@ -888,8 +872,9 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         sendBroadcast(intent);
         setResult(RESULT_OK, intent);
     }
-    // [新增] 执行星火 AI 总结入口
-    // [修改后] 执行星火 AI 总结入口
+    // [维护] 执行星火 AI 总结入口
+    // 协议细节（鉴权、连接、组包、流式解析）已下沉到 AiSummaryClient，
+    // 这里只负责取正文、显示进度、展示结果
     private void performSparkLiteSummary() {
         // 1. 先调用此方法同步 View 中的内容到 mWorkingNote 对象中
         // 注意：这里不需要接收返回值，因为我们只需要它执行同步逻辑
@@ -906,154 +891,55 @@ public class NoteEditActivity extends Activity implements OnClickListener,
             return;
         }
 
-        mAiResponseBuilder = new StringBuilder();
+        showAiProgress();
 
-        // 显示加载框
+        mAiSummaryClient = new AiSummaryClient(SPARK_APP_ID, SPARK_API_KEY, SPARK_API_SECRET,
+                SPARK_HOST_URL, SPARK_DOMAIN);
+        mAiSummaryClient.summarize(content, new AiSummaryClient.Callback() {
+            @Override
+            public void onSummaryStart() {
+                // 进度框已在 showAiProgress() 中显示，此处无需重复处理
+            }
+
+            @Override
+            public void onSummarySuccess(final String summary) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        dismissAiProgress();
+                        showAiResultDialog(summary);
+                    }
+                });
+            }
+
+            @Override
+            public void onSummaryError(final Throwable t) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        dismissAiProgress();
+                        showToast(R.string.ai_summary_error);
+                    }
+                });
+            }
+        });
+    }
+
+    // [维护] 显示 AI 总结进度框
+    private void showAiProgress() {
         mAiProgressDialog = new android.app.ProgressDialog(this);
         mAiProgressDialog.setTitle(getString(R.string.ai_summary_dialog_title));
         mAiProgressDialog.setMessage(getString(R.string.ai_summary_loading));
         mAiProgressDialog.setCancelable(true);
         mAiProgressDialog.show();
-
-        final String finalContent = content;
-        // 在子线程启动 WebSocket
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                startSparkWebSocket(finalContent);
-            }
-        }).start();
     }
 
-    // [新增] 启动 WebSocket 连接
-    private void startSparkWebSocket(final String userContent) {
-        try {
-            // 1. 生成鉴权 URL
-            String authUrl = getAuthUrl(SPARK_HOST_URL, SPARK_API_KEY, SPARK_API_SECRET);
-            // 将 https 替换为 wss
-            String wsUrl = authUrl.replace("http://", "ws://").replace("https://", "wss://");
-
-            OkHttpClient client = new OkHttpClient.Builder().build();
-            Request request = new Request.Builder().url(wsUrl).build();
-
-            // 2. 建立连接
-            client.newWebSocket(request, new WebSocketListener() {
-                @Override
-                public void onOpen(WebSocket webSocket, Response response) {
-                    super.onOpen(webSocket, response);
-                    // 连接成功，发送数据
-                    sendUserMessage(webSocket, userContent);
-                }
-
-                @Override
-                public void onMessage(WebSocket webSocket, String text) {
-                    super.onMessage(webSocket, text);
-                    // 收到消息，解析
-                    parseSparkResponse(text);
-                }
-
-                @Override
-                public void onFailure(WebSocket webSocket, Throwable t, Response response) {
-                    super.onFailure(webSocket, t, response);
-                    handleAiError(t);
-                }
-            });
-
-        } catch (Exception e) {
-            handleAiError(e);
+    // [维护] 关闭并释放 AI 总结进度框
+    private void dismissAiProgress() {
+        if (mAiProgressDialog != null) {
+            mAiProgressDialog.dismiss();
+            mAiProgressDialog = null;
         }
-    }
-
-    // [新增] 构造并发送用户消息 JSON
-    private void sendUserMessage(WebSocket webSocket, String content) {
-        try {
-            JSONObject requestJson = new JSONObject();
-
-            // Header
-            JSONObject header = new JSONObject();
-            header.put("app_id", SPARK_APP_ID);
-            header.put("uid", java.util.UUID.randomUUID().toString().substring(0, 10));
-            requestJson.put("header", header);
-
-            // Parameter
-            JSONObject parameter = new JSONObject();
-            JSONObject chat = new JSONObject();
-            chat.put("domain", SPARK_DOMAIN);
-            chat.put("temperature", 0.5);
-            chat.put("max_tokens", 2048);
-            parameter.put("chat", chat);
-            requestJson.put("parameter", parameter);
-
-            // Payload
-            JSONObject payload = new JSONObject();
-            JSONObject message = new JSONObject();
-            JSONArray textArray = new JSONArray();
-            JSONObject textObj = new JSONObject();
-            textObj.put("role", "user");
-            // 提示词：强制要求总结
-            textObj.put("content", "请简要总结以下便签内容的核心要点：\n\n" + content);
-            textArray.put(textObj);
-            message.put("text", textArray);
-            payload.put("message", message);
-            requestJson.put("payload", payload);
-
-            webSocket.send(requestJson.toString());
-
-        } catch (Exception e) {
-            handleAiError(e);
-        }
-    }
-
-    // [新增] 解析星火返回的 JSON
-    private void parseSparkResponse(String jsonText) {
-        try {
-            JSONObject jsonObject = new JSONObject(jsonText);
-            JSONObject header = jsonObject.optJSONObject("header");
-            int code = header.optInt("code");
-
-            if (code != 0) {
-                Log.e(TAG, "Spark Error: " + jsonText);
-                handleAiError(new Exception("Error Code: " + code));
-                return;
-            }
-
-            JSONObject payload = jsonObject.optJSONObject("payload");
-            JSONObject choices = payload.optJSONObject("choices");
-            int status = header.optInt("status"); // 0:首包, 1:中间, 2:尾包
-            JSONArray textArray = choices.optJSONArray("text");
-
-            if (textArray != null && textArray.length() > 0) {
-                JSONObject contentObj = textArray.getJSONObject(0);
-                String content = contentObj.optString("content");
-                mAiResponseBuilder.append(content);
-            }
-
-            if (status == 2) {
-                // 传输结束，显示结果
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (mAiProgressDialog != null) mAiProgressDialog.dismiss();
-                        showAiResultDialog(mAiResponseBuilder.toString());
-                    }
-                });
-            }
-
-        } catch (Exception e) {
-            handleAiError(e);
-        }
-    }
-
-    // [新增] 统一错误处理
-    private void handleAiError(Throwable t) {
-        t.printStackTrace();
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                if (mAiProgressDialog != null) mAiProgressDialog.dismiss();
-                showToast(R.string.ai_summary_error);
-            }
-        });
     }
 
     // [新增] 显示结果对话框
@@ -1090,35 +976,6 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         builder.show();
     }
 
-    // [新增] 星火鉴权 URL 生成算法 (HMAC-SHA256)
-    public static String getAuthUrl(String hostUrl, String apiKey, String apiSecret) throws Exception {
-        URL url = new URL(hostUrl);
-        SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
-        sdf.setTimeZone(TimeZone.getTimeZone("GMT"));
-        String date = sdf.format(new Date());
-
-        String host = url.getHost();
-        // 注意：v1/x1 这种带路径的 URL，Request-Line 必须包含路径
-        StringBuilder builder = new StringBuilder("host: ").append(host).append("\n").//
-                append("date: ").append(date).append("\n").//
-                append("GET ").append(url.getPath()).append(" HTTP/1.1");
-
-        Mac mac = Mac.getInstance("hmacsha256");
-        SecretKeySpec spec = new SecretKeySpec(apiSecret.getBytes(StandardCharsets.UTF_8), "hmacsha256");
-        mac.init(spec);
-        byte[] hexDigits = mac.doFinal(builder.toString().getBytes(StandardCharsets.UTF_8));
-
-        // 使用 Android Base64 NoWrap 模式
-        String sha = Base64.encodeToString(hexDigits, Base64.NO_WRAP);
-
-        String authorization = String.format("api_key=\"%s\", algorithm=\"%s\", headers=\"%s\", signature=\"%s\"", apiKey, "hmac-sha256", "host date request-line", sha);
-
-        String authBase64 = Base64.encodeToString(authorization.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
-
-        return String.format("%s?authorization=%s&date=%s&host=%s", hostUrl,
-                java.net.URLEncoder.encode(authBase64, "UTF-8"),
-                java.net.URLEncoder.encode(date, "UTF-8"), host);
-    }
 
     public void onClick(View v) {
         int id = v.getId();
@@ -1635,4 +1492,16 @@ public class NoteEditActivity extends Activity implements OnClickListener,
                 ContentUris.withAppendedId(Notes.CONTENT_NOTE_URI, mWorkingNote.getNoteId()),
                 values, null, null);
     }
+
+    @Override
+    protected void onDestroy() {
+        // 取消未完成的总结请求，避免回调打到已销毁的界面
+        if (mAiSummaryClient != null) {
+            mAiSummaryClient.cancel();
+            mAiSummaryClient = null;
+        }
+        dismissAiProgress();
+        super.onDestroy();
+    }
+
 }
