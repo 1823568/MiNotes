@@ -59,6 +59,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import net.micode.notes.BuildConfig;
 import net.micode.notes.R;
 import net.micode.notes.data.Notes;
 import net.micode.notes.data.Notes.NoteColumns;
@@ -89,10 +90,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
     private boolean mIsReadMode = false;
     private static final String PREF_READ_MODE_PREFIX = "read_mode_";
     // ================== 讯飞星火 Lite (X1.5) 配置 ==================
-    private static final String SPARK_APP_ID = "cd96030c";
-    private static final String SPARK_API_SECRET = "N2QwOGI5NmExMGI3ZTNkYWY2NjI5OGIy";
-    private static final String SPARK_API_KEY = "c7ac2b87174d615326d9df93f06e137c";
-
+    // [维护] 凭证不再硬编码：构建期从 local.properties 注入 BuildConfig
     // Spark Lite 接口地址
     private static final String SPARK_HOST_URL = "https://spark-api.xf-yun.com/v1/x1";
 
@@ -893,7 +891,8 @@ public class NoteEditActivity extends Activity implements OnClickListener,
 
         showAiProgress();
 
-        mAiSummaryClient = new AiSummaryClient(SPARK_APP_ID, SPARK_API_KEY, SPARK_API_SECRET,
+        mAiSummaryClient = new AiSummaryClient(BuildConfig.SPARK_APP_ID,
+                BuildConfig.SPARK_API_KEY, BuildConfig.SPARK_API_SECRET,
                 SPARK_HOST_URL, SPARK_DOMAIN);
         mAiSummaryClient.summarize(content, new AiSummaryClient.Callback() {
             @Override
