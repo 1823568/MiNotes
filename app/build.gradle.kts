@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace = "net.micode.notes"
-    compileSdk = 36
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "net.micode.notes"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -50,10 +50,7 @@ dependencies {
 //        "include" to listOf("*.aar", "*.jar"),
 //        "exclude" to listOf("")
 //    )))
-    implementation(files("../httpcomponents-client-4.5.14-bin/lib/httpclient-osgi-4.5.14.jar"))
-    implementation(files("../httpcomponents-client-4.5.14-bin/lib/httpclient-win-4.5.14.jar"))
-    implementation(files("../httpcomponents-client-4.5.14-bin/lib/httpcore-4.4.16.jar"))
-
+    implementation("org.apache.httpcomponents:httpclient:4.5.14")
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)
     androidTestImplementation(libs.espresso.core)
